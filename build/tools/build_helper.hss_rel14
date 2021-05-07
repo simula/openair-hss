@@ -40,7 +40,7 @@ build_freeDiameter()
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
   awk '{if (/^DISABLE_SCTP/) gsub(/OFF/, "ON"); print}' CMakeCache.txt > tmp && mv tmp CMakeCache.txt
-  make
+  make -j`nproc`
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
   $SUDO make install
@@ -60,7 +60,7 @@ build_c_ares()
   ./configure
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
-  make
+  make -j`nproc`
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
   $SUDO make install
@@ -81,7 +81,7 @@ build_cpp_driver()
   $CMAKE ..
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
-  make
+  make -j`nproc`
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
   $SUDO make install
@@ -102,7 +102,7 @@ build_pistache()
   $CMAKE -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
-  make
+  make -j`nproc`
   res=$?
   [[ $res -ne 0 ]] && popd && return $res
   $SUDO make install
@@ -140,6 +140,27 @@ init_submodules()
   rm -Rf $OPENAIRCN_DIR/build/git_submodules/freeDiameter/*
   cd $OPENAIRCN_DIR
   echo "git submodule init"
+  # Taking care of the case this repository is a sub-module
+  # And we are in a container
+  if [ -f .git ] && [ $IS_CONTAINER -ne 0 ]; then
+    rm -f .git
+    git init 2>&1 > /dev/null
+    if [ -f .gitmodules ]; then
+      mv .gitmodules .gitmodules.old
+      grep path .gitmodules.old | sed -e "s@^.*path = @@" > pathlist.txt
+      grep url .gitmodules.old | sed -e "s@^.*url = @@" > urllist.txt
+      path_list=( $(grep build pathlist.txt) )
+      url_list=( $(grep git urllist.txt) )
+      rm -f urllist.txt pathlist.txt
+      rm -Rf build/git_submodules/
+      mkdir build/git_submodules/
+      len=${#url_list[@]}
+      for (( i=0; i<$len; i++ )); do
+        git submodule add -b master ${url_list[$i]} ${path_list[$i]} 2>&1 > /dev/null
+      done
+      git submodule deinit --all --force 2>&1 > /dev/null
+    fi
+  fi
   git submodule init
   ret=$?;[[ $ret -ne 0 ]] && return $ret
   echo "git submodule foreach --recursive git clean -xfd"
@@ -197,10 +218,24 @@ init_submodules()
 #-------------------------------------------------------------------------------
 build_util()
 {
+  case "$1" in
+    Release)
+      opt_args='COPT_FLAGS="-O3"'
+      ;;
+    Debug)
+      opt_args='COPT_FLAGS="-g"'
+      ;;
+    RelWithDebInfo)
+      opt_args='COPT_FLAGS="-Og"'
+      ;;
+    MinSizeRel)
+      opt_args='COPT_FLAGS="-Os"'
+      ;;
+  esac
   pushd $OPENAIRCN_DIR/build/hss_rel14/util
   rm -rf build
   mkdir -p build
-  make
+  make $opt_args -j`nproc`
   res=$?
   popd
   return $res
@@ -210,10 +245,24 @@ build_util()
 #-------------------------------------------------------------------------------
 build_hsssec()
 {
+  case "$1" in
+    Release)
+      opt_args='COPT_FLAGS="-O3"'
+      ;;
+    Debug)
+      opt_args='COPT_FLAGS="-g"'
+      ;;
+    RelWithDebInfo)
+      opt_args='COPT_FLAGS="-Og"'
+      ;;
+    MinSizeRel)
+      opt_args='COPT_FLAGS="-Os"'
+      ;;
+  esac
   pushd $OPENAIRCN_DIR/build/hss_rel14/hsssec
   rm -rf build
   mkdir -p build
-  make
+  make $opt_args -j`nproc`
   res=$?
   popd
   return $res
@@ -225,7 +274,7 @@ build_hss()
 {
   pushd $OPENAIRCN_DIR/build/hss_rel14
   make clean
-  make
+  make -j`nproc`
   res=$?
   popd
   return $res
@@ -295,7 +344,7 @@ check_install_hss_software() {
         rm -f libuv-devel-1.23.1-1.module_el8+8246+46ee4016.x86_64.rpm libuv-1.23.1-1.el8.x86_64.rpm
         specific_packages="clang"
         ;;
-      "rhel8.2")
+      "rhel8.2" | "rhel8.3" | "rhel8.4" | "rhel8.5")
         specific_packages="libuv"
         $SUDO yum install $OPTION --enablerepo="codeready-builder-for-rhel-8-x86_64-rpms" $specific_packages gcc-c++ make $CMAKE openssl-devel libtool m4 automake patch libmemcached-devel memcached gcc bison flex lksctp-tools-devel gnutls-devel libgcrypt-devel libidn-devel nettle-devel
         OPTION='${OPTION} --enablerepo="ubi-8-codeready-builder"'
@@ -325,7 +374,10 @@ check_install_hss_software() {
   else
     echo_fatal "$OS_DISTRO is not a supported distribution."
   fi
-  if [[ "$(get_distribution_release)" == "rhel8.2" ]]; then
+  if [[ "$(get_distribution_release)" == "rhel8.2" ]] || \
+     [[ "$(get_distribution_release)" == "rhel8.3" ]] || \
+     [[ "$(get_distribution_release)" == "rhel8.4" ]] || \
+     [[ "$(get_distribution_release)" == "rhel8.5" ]]; then
     echo "====== Raphael ===="
     echo "bypassing (already done) : $SUDO $INSTALLER install $OPTION $PACKAGE_LIST"
     build_libuv
