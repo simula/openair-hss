@@ -17,14 +17,14 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface HSS service
-#   Valid for CentOS 8
+#   Valid for CentOS 7
 #
 #---------------------------------------------------------------------
 
 #---------------------------------------------------------------------
 # BUILDER IMAGE
 #---------------------------------------------------------------------
-FROM centos:8 as oai-hss-builder
+FROM centos:7 as oai-hss-builder
 
 ARG EURECOM_PROXY
 ARG BUILD_FOR_CI
@@ -33,10 +33,10 @@ ARG CI_SRC_COMMIT
 ARG CI_DEST_BRANCH
 
 RUN yum update -y \
-  && yum install epel-release -y \
-  && yum install dnf-plugins-core -y \
-  && yum config-manager --set-enabled PowerTools \
+  && yum install centos-release-scl -y \
+  && yum-config-manager --enable rhel-server-rhscl-7-rpms -y \
   && yum install -y \
+    devtoolset-7 \
     psmisc \
     git \
   && yum clean all -y \
@@ -55,22 +55,25 @@ RUN /bin/bash -c "if [[ -v BUILD_FOR_CI ]]; then git config --global user.email 
 RUN /bin/bash -c "if [[ -v BUILD_FOR_CI ]]; then git checkout -f $CI_SRC_COMMIT; fi"
 RUN /bin/bash -c "if [[ -v BUILD_FOR_CI ]]; then git merge --ff origin/$CI_DEST_BRANCH -m \"Temporary merge for CI\"; fi"
 
+# wait for it
+workdir /
+RUN git clone https://github.com/vishnubob/wait-for-it.git
+
 # Installing and Building HSS
 WORKDIR /openair-hss/scripts
-RUN ./build_hss_rel14 --check-installed-software --force
+RUN scl enable devtoolset-7 'cd /openair-hss/scripts && ./build_hss_rel14 --check-installed-software --force'
 RUN cp /usr/local/lib64/libpistache.a /usr/local/lib/libpistache.a
-RUN ./build_hss_rel14 --clean --build-type Release
+RUN scl enable devtoolset-7 'cd /openair-hss/scripts && ./build_hss_rel14 --clean --build-type Release'
 
 #---------------------------------------------------------------------
 # TARGET IMAGE
 #---------------------------------------------------------------------
-FROM centos:8 as oai-hss
+FROM centos:7 as oai-hss
+ENV TZ=Europe/Paris
 # We install some debug tools for the moment in addition of mandatory libraries
-RUN yum update -y \
-  && yum install epel-release -y \
-  && yum install dnf-plugins-core -y \
-  && yum config-manager --set-enabled PowerTools \
+RUN yum update -y && yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm \
   && yum install -y \
+    tzdata \
     psmisc \
     openssl \
     net-tools \
@@ -81,13 +84,13 @@ RUN yum update -y \
     gnutls \
     libconfig \
     libidn \
-    python2 \
+    python \
     python3 \
-    python2-pip \
+    python-pip \
     python3-pip \
   && yum clean all -y \
   && rm -rf /var/cache/yum \
-  && pip2 install --user cassandra-driver \
+  && pip install --user cassandra-driver \
   && pip3 install --user cassandra-driver
 
 # Copying executable and generated libraries
@@ -114,7 +117,7 @@ WORKDIR /openair-hss/scripts
 COPY --from=oai-hss-builder /openair-hss/src/hss_rel14/bin/make_certs.sh .
 COPY --from=oai-hss-builder /openair-hss/scripts/data_provisioning_users .
 COPY --from=oai-hss-builder /openair-hss/scripts/data_provisioning_mme .
-RUN sed -i -e "s@python@python2@" data_provisioning_mme
+COPY --from=oai-hss-builder /wait-for-it/wait-for-it.sh .
 RUN sed -i -e "s@/freeDiameter@@" make_certs.sh
 
 WORKDIR /openair-hss
