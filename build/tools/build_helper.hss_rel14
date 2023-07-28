@@ -156,7 +156,9 @@ init_submodules()
       mkdir build/git_submodules/
       len=${#url_list[@]}
       for (( i=0; i<$len; i++ )); do
-        git submodule add -b master ${url_list[$i]} ${path_list[$i]} 2>&1 > /dev/null
+        for branch in master main; do
+          git submodule add -b $branch ${url_list[$i]} ${path_list[$i]} 2>&1 > /dev/null
+        done
       done
       git submodule deinit --all --force 2>&1 > /dev/null
     fi
@@ -184,11 +186,11 @@ init_submodules()
       fi
   done
   [[ $ret -ne 0 ]] && return $ret
-  echo "git submodule foreach git pull origin master || git submodule foreach git pull origin main"
+  echo "git submodule foreach git pull origin master"
   local cnt="0"
   while [ $cnt -lt 3 ]
   do
-      git submodule foreach git pull origin master || git submodule foreach git pull origin main
+      git submodule foreach "git pull origin main || git pull origin master || true"
       ret=$?
       if [[ $ret -ne 0 ]]
       then
