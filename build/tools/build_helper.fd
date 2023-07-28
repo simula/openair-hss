@@ -398,11 +398,11 @@ install_opencoord.org_freediameter() {
     [[ $ret -ne 0 ]] && return $ret
     echo "pushd $OPENAIRCN_DIR/build/git_submodules/freeDiameter"
     pushd $OPENAIRCN_DIR/build/git_submodules/freeDiameter
-    echo "git pull origin master"
+    echo "git pull origin master || git pull origin main"
     cnt="0"
     while [ $cnt -lt 3 ]
     do
-        git pull origin master
+        git pull origin master || git pull origin main
         ret=$?
         if [[ $ret -ne 0 ]]
         then
